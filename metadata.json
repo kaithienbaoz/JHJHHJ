@@ -1,0 +1,8 @@
+{
+  "name": "W-News PNG",
+  "description": "Trình tạo video tự động ghép nối hình ảnh nhân vật, tệp phụ đề SRT và âm thanh MP3 với hiệu ứng chuyển đổi mượt mà.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
