@@ -41,6 +41,7 @@ interface KhoAnhModalProps {
   onUpdateDictionary?: (rules: DictionaryRule[]) => void;
   backgroundNames?: string[];
   onUpdateBackgroundNames?: (names: string[]) => void;
+  onClearAllImages?: () => Promise<void> | void;
 }
 
 // Resizer and optimizer for canvas image uploads - preserves original/standard size while compressing
@@ -282,7 +283,8 @@ export default function KhoAnhModal({
   dictionary,
   onUpdateDictionary,
   backgroundNames = [],
-  onUpdateBackgroundNames = () => {}
+  onUpdateBackgroundNames = () => {},
+  onClearAllImages
 }: KhoAnhModalProps) {
   const [selectedChar, setSelectedChar] = useState<string>('Tất cả');
   const [newCharName, setNewCharName] = useState('');
@@ -378,6 +380,11 @@ export default function KhoAnhModal({
   const [dictSearchQuery, setDictSearchQuery] = useState('');
   const [newAliasKeyword, setNewAliasKeyword] = useState('');
   const [confirmDeleteChar, setConfirmDeleteChar] = useState<string | null>(null);
+
+  // States for deleting all contacts and images with 5-digit verification
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [deleteVerificationCode, setDeleteVerificationCode] = useState('');
+  const [deleteInputCode, setDeleteInputCode] = useState('');
 
   // Pending batch state waiting for name input
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -494,28 +501,94 @@ export default function KhoAnhModal({
     setEditingRuleId(null);
   };
 
+  const getValidTxtNames = () => {
+    const namesSet = new Set<string>();
+    rules.forEach(r => {
+      if (r.characterName) {
+        namesSet.add(r.characterName.trim());
+      }
+    });
+    backgroundNames.forEach(bg => {
+      namesSet.add(bg.trim());
+    });
+    createdEmptyChars.forEach(c => {
+      namesSet.add(c.trim());
+    });
+    return Array.from(namesSet).filter(name => name !== 'Tất cả' && name !== 'Không có nhân vật');
+  };
+
+  const normalizeCharacterName = (name: string | undefined | null): string => {
+    if (!name) return 'Không có nhân vật';
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === 'Không có nhân vật' || trimmed === 'Tất cả') {
+      return 'Không có nhân vật';
+    }
+    
+    const validNames = getValidTxtNames();
+    const lowerName = trimmed.toLowerCase();
+    
+    const match = validNames.find(n => n.toLowerCase() === lowerName);
+    if (match) {
+      return match;
+    }
+    return 'Không có nhân vật';
+  };
+
+  const handleRequestDeleteAll = () => {
+    const code = Math.floor(10000 + Math.random() * 90000).toString();
+    setDeleteVerificationCode(code);
+    setDeleteInputCode('');
+    setShowDeleteAllConfirm(true);
+  };
+
+  const handleConfirmDeleteAll = async () => {
+    if (deleteInputCode !== deleteVerificationCode) {
+      alert('Mã xác nhận không khớp! Vui lòng thử lại.');
+      return;
+    }
+    
+    // 1. Clear dictionary rules
+    if (onUpdateDictionary) {
+      onUpdateDictionary([]);
+    }
+    
+    // 2. Clear backgrounds
+    if (onUpdateBackgroundNames) {
+      onUpdateBackgroundNames([]);
+    }
+    
+    // 3. Clear created empty characters
+    setCreatedEmptyChars([]);
+    try {
+      safeLocalStorage.removeItem('vsync_empty_chars');
+    } catch (e) {
+      console.error(e);
+    }
+    
+    // 4. Clear all images
+    if (onClearAllImages) {
+      await onClearAllImages();
+    }
+    
+    setShowDeleteAllConfirm(false);
+    alert('Đã xóa sạch toàn bộ danh bạ và kho ảnh!');
+  };
+
   if (!isOpen) return null;
 
   // Extract list of all unique character name categories sorted and partitioned as requested
-  const allRawNames = (() => {
-    return Array.from(
-      new Set([
-        ...images.map(img => img.characterName).filter(Boolean),
-        ...createdEmptyChars
-      ])
-    ).filter(name => name !== 'Tất cả' && name !== 'Không có nhân vật');
-  })();
+  const allRawNames = getValidTxtNames();
 
   const onlyCharactersRaw = allRawNames.filter(name => !backgroundNames.includes(name));
   const onlyBackgroundsRaw = allRawNames.filter(name => backgroundNames.includes(name));
 
   const getSortedGroup = (names: string[]) => {
     const withAssets = names.filter(name => {
-      return images.some(img => img.characterName === name);
+      return images.some(img => normalizeCharacterName(img.characterName) === name);
     });
 
     const withoutAssets = names.filter(name => {
-      return !images.some(img => img.characterName === name);
+      return !images.some(img => normalizeCharacterName(img.characterName) === name);
     });
 
     withAssets.sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
@@ -729,8 +802,21 @@ export default function KhoAnhModal({
 
       if (acceptedFiles.length > 0) {
         setPendingFiles(acceptedFiles);
-        // Default the name assignment input to either currently selected character (if it's not "Tất cả") or blank
-        setCharNamingInput(selectedChar === 'Tất cả' || selectedChar === 'Không có nhân vật' ? '' : selectedChar);
+        
+        // Auto-detect character name from folder path
+        const firstFile = acceptedFiles[0];
+        const path = firstFile.webkitRelativePath || firstFile.name;
+        let suggestedName = '';
+        if (path && path.includes('/')) {
+          suggestedName = path.split('/')[0].trim();
+        } else {
+          // Fallback to currently selected character if it's not 'Tất cả' or 'Không có nhân vật'
+          suggestedName = selectedChar === 'Tất cả' || selectedChar === 'Không có nhân vật' ? '' : selectedChar;
+        }
+
+        // Case-insensitive match against TXT names
+        const normalizedSuggested = normalizeCharacterName(suggestedName);
+        setCharNamingInput(normalizedSuggested);
         setShowNamingPrompt(true);
       }
     }
@@ -739,7 +825,7 @@ export default function KhoAnhModal({
   };
 
   const handleCompleteNamingAndSave = () => {
-    const finalCharName = charNamingInput.trim() || 'Không có nhân vật';
+    const finalCharName = normalizeCharacterName(charNamingInput);
     
     startTransition(async () => {
       setOptimizeProgress({ current: 0, total: pendingFiles.length });
@@ -779,10 +865,6 @@ export default function KhoAnhModal({
 
       if (loaded.length > 0) {
         onImagesLoaded(loaded);
-        // Ensure character name gets registered in list even if select character changes
-        if (finalCharName !== 'Không có nhân vật' && !createdEmptyChars.includes(finalCharName)) {
-          setCreatedEmptyChars(prev => [...prev, finalCharName]);
-        }
         setSelectedChar(finalCharName);
       }
 
@@ -795,9 +877,10 @@ export default function KhoAnhModal({
 
   // Filter images according to active selection
   const filteredCategoryImages = images.filter(img => {
+    const normChar = normalizeCharacterName(img.characterName);
     if (selectedChar === 'Tất cả') return true;
-    if (selectedChar === 'Không có nhân vật') return !img.characterName || img.characterName === 'Không có nhân vật';
-    return img.characterName === selectedChar;
+    if (selectedChar === 'Không có nhân vật') return !normChar || normChar === 'Không có nhân vật';
+    return normChar === selectedChar;
   });
 
   // Filter dictionary rules according to active selection
@@ -888,17 +971,28 @@ export default function KhoAnhModal({
             </div>
 
 
-            <div className="p-4 border-b border-white/5 flex items-center justify-between bg-[#0e0e11]/50 shrink-0">
-              <span className="text-[10px] font-bold text-white/40 tracking-widest uppercase flex items-center gap-1">
-                <Users size={11} /> Nhân vật
-              </span>
+            <div className="p-4 border-b border-white/5 flex flex-col gap-2 bg-[#0e0e11]/50 shrink-0">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-white/40 tracking-widest uppercase flex items-center gap-1">
+                  <Users size={11} /> Nhân vật
+                </span>
+                
+                <button
+                  type="button"
+                  onClick={handleRequestDeleteAll}
+                  className="flex items-center gap-1 text-[10px] bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-2.5 py-1 rounded-lg font-bold transition-all shadow-md cursor-pointer"
+                  title="Xóa tất cả danh bạ và kho ảnh"
+                >
+                  <Trash2 size={10} /> Xóa Tất Cả
+                </button>
+              </div>
 
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 {!showNewCharInput && (
                   <button
                     type="button"
                     onClick={() => setShowNewCharInput(true)}
-                    className="flex items-center gap-1 text-[10px] bg-sky-600 hover:bg-sky-500 active:scale-95 text-white px-2 py-1 rounded font-bold transition-all"
+                    className="flex items-center gap-1 text-[10px] bg-[#1e293b] hover:bg-slate-700 active:scale-95 text-white/90 px-2 py-1 rounded font-bold transition-all cursor-pointer"
                     title="Thêm nhân vật thủ công"
                   >
                     <Plus size={10} /> Thêm
@@ -916,7 +1010,7 @@ export default function KhoAnhModal({
                 <button
                   type="button"
                   onClick={() => document.getElementById('bulk-char-txt-input')?.click()}
-                  className="flex items-center gap-1 text-[10px] bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-2 py-1 rounded font-bold transition-all"
+                  className="flex items-center gap-1 text-[10px] bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-2 py-1 rounded font-bold transition-all cursor-pointer"
                   title="Nhập danh sách nhân vật từ file .txt"
                 >
                   <Upload size={10} /> Nhập .TXT
@@ -925,7 +1019,7 @@ export default function KhoAnhModal({
                 <button
                   type="button"
                   onClick={handleCharTxtExport}
-                  className="flex items-center gap-1 text-[10px] bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2 py-1 rounded font-bold transition-all"
+                  className="flex items-center gap-1 text-[10px] bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2 py-1 rounded font-bold transition-all cursor-pointer"
                   title="Xuất danh sách nhân vật ra file .txt"
                 >
                   <Download size={10} /> Xuất .TXT
@@ -977,9 +1071,10 @@ export default function KhoAnhModal({
                 </div>
                 {charactersList.map((charName) => {
                 const imgCount = images.filter(img => {
+                  const normChar = normalizeCharacterName(img.characterName);
                   if (charName === 'Tất cả') return true;
-                  if (charName === 'Không có nhân vật') return !img.characterName || img.characterName === 'Không có nhân vật';
-                  return img.characterName === charName;
+                  if (charName === 'Không có nhân vật') return !normChar || normChar === 'Không có nhân vật';
+                  return normChar === charName;
                 }).length;
 
                 const canDelete = charName !== 'Tất cả' && charName !== 'Không có nhân vật';
@@ -1122,7 +1217,7 @@ export default function KhoAnhModal({
                 )}
 
                 {backgroundsList.map((charName) => {
-                  const imgCount = images.filter(img => img.characterName === charName).length;
+                  const imgCount = images.filter(img => normalizeCharacterName(img.characterName) === charName).length;
 
                   return (
                     <div
@@ -1537,18 +1632,20 @@ export default function KhoAnhModal({
 
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] text-white/50 block mb-1">Nhập tên hoặc chọn nhân vật:</label>
+                <label className="text-[10px] text-white/50 block mb-1">Chọn nhân vật từ danh bạ TXT:</label>
                 
-                {/* Text input with quick suggestions */}
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ví dụ: Sarah, Dũng Sỹ..."
+                <select
                   value={charNamingInput}
                   onChange={(e) => setCharNamingInput(e.target.value)}
-                  className="w-full bg-black text-xs px-3 py-2.5 rounded-lg border border-white/10 text-white font-medium focus:outline-none focus:border-sky-500"
-                />
+                  className="w-full bg-black text-xs px-3 py-2.5 rounded-lg border border-white/10 text-white font-medium focus:outline-none focus:border-sky-500 cursor-pointer"
+                >
+                  <option value="Không có nhân vật">Không có nhân vật</option>
+                  {getValidTxtNames().map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* List of existing characters to quickly tap to fill */}
@@ -1619,6 +1716,64 @@ export default function KhoAnhModal({
                     Xác nhận &amp; Lưu
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteAllConfirm && (
+        <div id="delete-all-confirm-overlay" className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div id="delete-all-confirm-card" className="bg-[#111114] border border-red-500/20 p-6 rounded-2xl w-full max-w-sm space-y-4 shadow-[0_0_50px_rgba(239,68,68,0.15)] animate-in scale-in duration-200">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-red-500/10 text-red-400 rounded-lg">
+                <AlertCircle size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-tight">Xóa toàn bộ danh bạ &amp; ảnh</h3>
+                <p className="text-[11px] text-white/40">Hành động này không thể hoàn tác!</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 bg-red-500/5 border border-red-500/10 rounded-xl p-3.5">
+              <div className="text-center">
+                <span className="text-[10px] text-white/50 block mb-1">Mã xác nhận gồm 5 số của bạn:</span>
+                <span className="text-2xl font-bold font-mono tracking-[0.25em] text-red-400 select-all">
+                  {deleteVerificationCode}
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-white/50 block mb-1.5 font-medium">Nhập lại chính xác 5 số trên:</label>
+                <input
+                  type="text"
+                  maxLength={5}
+                  required
+                  autoFocus
+                  placeholder="Nhập mã..."
+                  value={deleteInputCode}
+                  onChange={(e) => setDeleteInputCode(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="w-full bg-black text-center text-sm font-bold font-mono tracking-widest py-2.5 rounded-lg border border-white/10 text-white focus:outline-none focus:border-red-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-semibold text-white/60 transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              
+              <button
+                type="button"
+                disabled={deleteInputCode !== deleteVerificationCode}
+                onClick={handleConfirmDeleteAll}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 rounded-lg text-xs font-bold text-white transition-colors cursor-pointer"
+              >
+                Xác nhận xóa hoàn toàn
               </button>
             </div>
           </div>

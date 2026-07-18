@@ -418,6 +418,33 @@ function App() {
 
   const [dictionary, setDictionary] = useState<DictionaryRule[]>([]);
 
+  const getNormalizedImages = useMemo(() => {
+    const validNames = new Set<string>();
+    dictionary.forEach(r => {
+      if (r.characterName) validNames.add(r.characterName.trim());
+    });
+    backgroundNames.forEach(bg => {
+      validNames.add(bg.trim());
+    });
+    const validNamesList = Array.from(validNames);
+
+    return images.map(img => {
+      if (!img.characterName) {
+        return { ...img, characterName: 'Không có nhân vật' };
+      }
+      const trimmed = img.characterName.trim();
+      const lower = trimmed.toLowerCase();
+      if (!trimmed || lower === 'không có nhân vật' || lower === 'tất cả') {
+        return { ...img, characterName: 'Không có nhân vật' };
+      }
+      const match = validNamesList.find(n => n.toLowerCase() === lower);
+      return {
+        ...img,
+        characterName: match || 'Không có nhân vật'
+      };
+    });
+  }, [images, dictionary, backgroundNames]);
+
   const [isDbLoading, setIsDbLoading] = useState(true);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [srtFile, setSrtFile] = useState<File | null>(null);
@@ -429,7 +456,7 @@ function App() {
     const usedImageIds = new Set<string>();
 
     const uniqueCharNames = Array.from(new Set([
-      ...images.map(img => img.characterName),
+      ...getNormalizedImages.map(img => img.characterName),
       ...(videos || []).map(v => v.characterName),
       ...dictionary.map(d => d.characterName)
     ].map(name => name?.trim()).filter(name => {
@@ -957,10 +984,10 @@ function App() {
 
   // Re-match automatic subtitle blocks when layout rules or video priorities change in config
   useEffect(() => {
-    if (subtitles.length > 0 && images.length > 0) {
-      remapSubtitles(subtitles, images);
+    if (subtitles.length > 0 && getNormalizedImages.length > 0) {
+      remapSubtitles(subtitles, getNormalizedImages);
     }
-  }, [config.singleKeywordMode, config.videoPriorityBlocks]);
+  }, [config.singleKeywordMode, config.videoPriorityBlocks, getNormalizedImages]);
 
   const [previewTime, setPreviewTime] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'create' | 'guide'>('create');
@@ -1348,10 +1375,10 @@ function App() {
     } catch (e) {
       console.warn("Lỗi lưu dictionary vào safeLocalStorage:", e);
     }
-    if (subtitles.length > 0 && images.length > 0) {
-      remapSubtitles(subtitles, images, dictionary);
+    if (subtitles.length > 0 && getNormalizedImages.length > 0) {
+      remapSubtitles(subtitles, getNormalizedImages, dictionary);
     }
-  }, [dictionary]);
+  }, [dictionary, getNormalizedImages]);
 
   // Automatically clean up orphan dictionary rules for deleted characters or backgrounds
   useEffect(() => {
@@ -1398,10 +1425,10 @@ function App() {
   // Trigger subtitle remapping when layout config or video settings changes
   useEffect(() => {
     if (!isConfigLoaded) return;
-    if (subtitles.length > 0 && images.length > 0) {
-      remapSubtitles(subtitles, images, dictionary);
+    if (subtitles.length > 0 && getNormalizedImages.length > 0) {
+      remapSubtitles(subtitles, getNormalizedImages, dictionary);
     }
-  }, [config.singleKeywordMode, config.videoPriorityBlocks, videos]);
+  }, [config.singleKeywordMode, config.videoPriorityBlocks, videos, getNormalizedImages]);
 
   const handleImagesLoaded = async (loadedImages: CharacterImage[], skipRemap = false) => {
     try {
@@ -2760,7 +2787,7 @@ function App() {
                     }));
 
                     // Trigger match automatically on processing
-                    remapSubtitles(subtitles, images);
+                    remapSubtitles(subtitles, getNormalizedImages);
                     setHasProcessed(true);
                   }}
                   className={`w-full py-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all transition-transform active:scale-[0.98] ${
@@ -2795,7 +2822,7 @@ function App() {
                   {/* Visual Realtime Preview Monitor */}
                   <VideoPreviewSection
                     subtitles={displaySubtitles}
-                    images={images}
+                    images={getNormalizedImages}
                     videos={videos}
                     audioFile={audioFile}
                     audioDuration={audioDuration}
@@ -2811,7 +2838,7 @@ function App() {
                   {/* Exporter Progress Bar & Formats */}
                   <VideoExporter
                     subtitles={displaySubtitles}
-                    images={images}
+                    images={getNormalizedImages}
                     videos={videos}
                     audioFile={audioFile}
                     audioDuration={audioDuration}
@@ -2863,7 +2890,7 @@ function App() {
                     <div className="p-5 bg-[#24292d]/50 animate-in fade-in slide-in-from-top-2 duration-300">
                       <SubtitleMatcher
                         subtitles={mergedSubtitles}
-                        images={images}
+                        images={getNormalizedImages}
                         videos={videos}
                         config={config}
                         onSubtitlesMatched={handleSubtitlesMatched}
@@ -2888,7 +2915,7 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         config={config}
         onConfigChange={setConfig}
-        images={images}
+        images={getNormalizedImages}
         onCustomBgUploaded={handleCustomBgUploaded}
         bgMusicFiles={bgMusicFiles}
         onAddBgMusic={handleAddBgMusic}
@@ -2905,7 +2932,7 @@ function App() {
       <KhoAnhModal
         isOpen={isKhoAnhOpen}
         onClose={() => setIsKhoAnhOpen(false)}
-        images={images}
+        images={getNormalizedImages}
         onImagesLoaded={handleImagesLoaded}
         onDeleteImage={handleSingleImageDelete}
         onDeleteCharacter={handleDeleteCharacter}
@@ -2914,6 +2941,7 @@ function App() {
         onUpdateDictionary={setDictionary}
         backgroundNames={backgroundNames}
         onUpdateBackgroundNames={setBackgroundNames}
+        onClearAllImages={handleClearImages}
       />
 
       {/* Missing Character Images Warning Dialog */}
@@ -2923,12 +2951,12 @@ function App() {
           setShowMissingImagesModal(false);
           setBypassMissingCheck(true);
           if (subtitles.length > 0) {
-            remapSubtitles(subtitles, images, dictionary);
+            remapSubtitles(subtitles, getNormalizedImages, dictionary);
           }
         }}
         missingCharacters={missingCharacters}
         onImagesAdded={handleImagesLoaded}
-        allImages={images}
+        allImages={getNormalizedImages}
       />
 
       {showMismatchWarning && (
