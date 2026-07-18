@@ -78,6 +78,21 @@ if (typeof window !== 'undefined') {
     const errorMsg = error?.message || error?.reason?.message || String(error);
     const errorStack = error?.stack || error?.reason?.stack || '';
     
+    // Filter out benign HMR / WebSocket / browser-extension errors
+    if (
+      errorMsg.includes('WebSocket') ||
+      errorMsg.includes('websocket') ||
+      errorMsg.includes('vite') ||
+      errorMsg.includes('Vite') ||
+      errorMsg.includes('HMR') ||
+      errorMsg.includes('hmr') ||
+      errorMsg.includes('ResizeObserver') ||
+      (errorStack && (errorStack.includes('vite') || errorStack.includes('websocket') || errorStack.includes('hmr')))
+    ) {
+      console.warn("Ignoring benign WebSocket/HMR/ResizeObserver error:", errorMsg);
+      return;
+    }
+    
     const overlay = document.createElement('div');
     overlay.id = 'global-error-overlay';
     overlay.style.position = 'fixed';
@@ -139,12 +154,35 @@ if (typeof window !== 'undefined') {
   };
 
   window.addEventListener('error', (event) => {
-    // Standard error event
+    const errorMsg = event.message || '';
+    if (
+      errorMsg.includes('WebSocket') ||
+      errorMsg.includes('websocket') ||
+      errorMsg.includes('vite') ||
+      errorMsg.includes('Vite') ||
+      errorMsg.includes('HMR') ||
+      errorMsg.includes('hmr') ||
+      errorMsg.includes('ResizeObserver')
+    ) {
+      return; // Ignore
+    }
     handleError(event.error || event.message);
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    // Unhandled promise rejections
+    const reason = event.reason;
+    const errorMsg = reason?.message || String(reason || '');
+    if (
+      errorMsg.includes('WebSocket') ||
+      errorMsg.includes('websocket') ||
+      errorMsg.includes('vite') ||
+      errorMsg.includes('Vite') ||
+      errorMsg.includes('HMR') ||
+      errorMsg.includes('hmr') ||
+      errorMsg.includes('ResizeObserver')
+    ) {
+      return; // Ignore
+    }
     handleError(event.reason || 'Unhandled Promise Rejection');
   });
 }

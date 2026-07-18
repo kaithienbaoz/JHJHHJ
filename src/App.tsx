@@ -277,25 +277,27 @@ const DEFAULT_CONFIG: RenderConfig = {
   minSubChars: 40
 };
 
-// Helper for keyword matching with exact case, standalone or bordered by special chars (word boundaries)
+// Helper for keyword matching with case-insensitive, standalone or bordered by special chars (word boundaries)
 function isKeywordMatch(subtitleText: string, kw: string): boolean {
   if (!subtitleText || !kw) return false;
-  if (STOP_WORDS.has(kw.toLowerCase().trim())) return false; // Absolutely ignore stop words!
+  const lowerText = subtitleText.toLowerCase();
+  const lowerKw = kw.toLowerCase().trim();
+  if (STOP_WORDS.has(lowerKw)) return false; // Absolutely ignore stop words!
   
-  let index = subtitleText.indexOf(kw);
+  let index = lowerText.indexOf(lowerKw);
   while (index !== -1) {
     let leftOk = true;
     if (index > 0) {
-      const leftChar = subtitleText[index - 1];
+      const leftChar = lowerText[index - 1];
       if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(leftChar)) {
         leftOk = false;
       }
     }
     
     let rightOk = true;
-    const rightIndex = index + kw.length;
-    if (rightIndex < subtitleText.length) {
-      const rightChar = subtitleText[rightIndex];
+    const rightIndex = index + lowerKw.length;
+    if (rightIndex < lowerText.length) {
+      const rightChar = lowerText[rightIndex];
       if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(rightChar)) {
         rightOk = false;
       }
@@ -304,7 +306,7 @@ function isKeywordMatch(subtitleText: string, kw: string): boolean {
     if (leftOk && rightOk) {
       return true;
     }
-    index = subtitleText.indexOf(kw, index + 1);
+    index = lowerText.indexOf(lowerKw, index + 1);
   }
   return false;
 }
@@ -425,6 +427,92 @@ function App() {
 
   const mergedSubtitles = useMemo(() => {
     const usedImageIds = new Set<string>();
+
+    const uniqueCharNames = Array.from(new Set([
+      ...images.map(img => img.characterName),
+      ...(videos || []).map(v => v.characterName),
+      ...dictionary.map(d => d.characterName)
+    ].map(name => name?.trim()).filter(name => {
+      if (!name) return false;
+      const lower = name.toLowerCase();
+      return lower !== 'không có nhân vật' && lower !== 'tất cả' && lower !== 'không có' && !STOP_WORDS.has(lower);
+    }) as string[]));
+
+    const isWordMatchIgnoreCase = (targetText: string, kw: string): boolean => {
+      if (!targetText || !kw) return false;
+      const lowerText = targetText.toLowerCase();
+      const lowerKw = kw.toLowerCase().trim();
+      if (STOP_WORDS.has(lowerKw)) return false;
+      
+      let index = lowerText.indexOf(lowerKw);
+      while (index !== -1) {
+        let leftOk = true;
+        if (index > 0) {
+          const leftChar = lowerText[index - 1];
+          if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(leftChar)) {
+            leftOk = false;
+          }
+        }
+        
+        let rightOk = true;
+        const rightIndex = index + lowerKw.length;
+        if (rightIndex < lowerText.length) {
+          const rightChar = lowerText[rightIndex];
+          if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(rightChar)) {
+            rightOk = false;
+          }
+        }
+        
+        if (leftOk && rightOk) {
+          return true;
+        }
+        index = lowerText.indexOf(lowerKw, index + 1);
+      }
+      return false;
+    };
+
+    const getCharsInItem = (item: CharacterImage): Set<string> => {
+      const itemChars = new Set<string>();
+      if (item.characterName) {
+        const lowerChar = item.characterName.trim().toLowerCase();
+        if (lowerChar && lowerChar !== 'không có nhân vật' && lowerChar !== 'tất cả' && lowerChar !== 'không có' && !STOP_WORDS.has(lowerChar)) {
+          uniqueCharNames.forEach(char => {
+            if (isWordMatchIgnoreCase(item.characterName || '', char)) {
+              itemChars.add(char);
+            }
+          });
+          itemChars.add(item.characterName.trim());
+        }
+      }
+      if (item.name) {
+        uniqueCharNames.forEach(char => {
+          if (isWordMatchIgnoreCase(item.name || '', char)) {
+            itemChars.add(char);
+          }
+        });
+      }
+      return itemChars;
+    };
+
+    const getDetectedCharactersForBlock = (text: string): Set<string> => {
+      const detected = new Set<string>();
+      uniqueCharNames.forEach(char => {
+        if (isWordMatchIgnoreCase(text, char)) {
+          detected.add(char);
+        }
+      });
+      dictionary.forEach(entry => {
+        if (entry.keyword && isWordMatchIgnoreCase(text, entry.keyword)) {
+          if (entry.characterName) {
+            const lower = entry.characterName.trim().toLowerCase();
+            if (lower && lower !== 'không có nhân vật' && lower !== 'tất cả' && lower !== 'không có' && !STOP_WORDS.has(lower)) {
+              detected.add(entry.characterName.trim());
+            }
+          }
+        }
+      });
+      return detected;
+    };
     // 1. First, merge short blocks under minSubChars
     let mergedBlocks: SubtitleBlock[] = [];
     const minChars = config.minSubChars !== undefined ? config.minSubChars : 40;
@@ -1610,6 +1698,151 @@ function App() {
 
     const usedImageIds = new Set<string>();
 
+    const uniqueCharNames = Array.from(new Set([
+      ...imagesList.map(img => img.characterName),
+      ...(videos || []).map(v => v.characterName),
+      ...dictList.map(d => d.characterName)
+    ].map(name => name?.trim()).filter(name => {
+      if (!name) return false;
+      const lower = name.toLowerCase();
+      return lower !== 'không có nhân vật' && lower !== 'tất cả' && lower !== 'không có' && !STOP_WORDS.has(lower);
+    }) as string[]));
+
+    const isWordMatchIgnoreCase = (targetText: string, kw: string): boolean => {
+      if (!targetText || !kw) return false;
+      const lowerText = targetText.toLowerCase();
+      const lowerKw = kw.toLowerCase().trim();
+      if (STOP_WORDS.has(lowerKw)) return false;
+      
+      let index = lowerText.indexOf(lowerKw);
+      while (index !== -1) {
+        let leftOk = true;
+        if (index > 0) {
+          const leftChar = lowerText[index - 1];
+          if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(leftChar)) {
+            leftOk = false;
+          }
+        }
+        
+        let rightOk = true;
+        const rightIndex = index + lowerKw.length;
+        if (rightIndex < lowerText.length) {
+          const rightChar = lowerText[rightIndex];
+          if (/[A-Za-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(rightChar)) {
+            rightOk = false;
+          }
+        }
+        
+        if (leftOk && rightOk) {
+          return true;
+        }
+        index = lowerText.indexOf(lowerKw, index + 1);
+      }
+      return false;
+    };
+
+    const getCharsInItem = (item: CharacterImage): Set<string> => {
+      const itemChars = new Set<string>();
+      if (item.characterName) {
+        const lowerChar = item.characterName.trim().toLowerCase();
+        if (lowerChar && lowerChar !== 'không có nhân vật' && lowerChar !== 'tất cả' && lowerChar !== 'không có' && !STOP_WORDS.has(lowerChar)) {
+          uniqueCharNames.forEach(char => {
+            if (isWordMatchIgnoreCase(item.characterName || '', char)) {
+              itemChars.add(char);
+            }
+          });
+          itemChars.add(item.characterName.trim());
+        }
+      }
+      if (item.name) {
+        uniqueCharNames.forEach(char => {
+          if (isWordMatchIgnoreCase(item.name || '', char)) {
+            itemChars.add(char);
+          }
+        });
+      }
+      return itemChars;
+    };
+
+    const getDetectedCharactersForBlock = (text: string): Set<string> => {
+      const detected = new Set<string>();
+      uniqueCharNames.forEach(char => {
+        if (isWordMatchIgnoreCase(text, char)) {
+          detected.add(char);
+        }
+      });
+      dictList.forEach(entry => {
+        if (entry.keyword && isWordMatchIgnoreCase(text, entry.keyword)) {
+          if (entry.characterName) {
+            const lower = entry.characterName.trim().toLowerCase();
+            if (lower && lower !== 'không có nhân vật' && lower !== 'tất cả' && lower !== 'không có' && !STOP_WORDS.has(lower)) {
+              detected.add(entry.characterName.trim());
+            }
+          }
+        }
+      });
+      return detected;
+    };
+
+    const getBestMediaForBlock = (
+      detectedChars: Set<string>,
+      shouldPreferVideo: boolean,
+      excludeIds: Set<string> = new Set()
+    ): Array<{ item: CharacterImage; score: number; isVideo: boolean }> => {
+      if (detectedChars.size === 0) return [];
+
+      const candidates: Array<{ item: CharacterImage; score: number; isVideo: boolean }> = [];
+
+      // Score images
+      imagesList.forEach(img => {
+        if (excludeIds.has(img.id)) return;
+        const imgChars = getCharsInItem(img);
+        let score = 0;
+        imgChars.forEach(char => {
+          if (detectedChars.has(char)) {
+            score++;
+          }
+        });
+        if (score > 0) {
+          candidates.push({ item: img, score, isVideo: false });
+        }
+      });
+
+      // Score videos
+      (videos || []).forEach(vid => {
+        if (excludeIds.has(vid.id)) return;
+        const vidChars = getCharsInItem(vid as any);
+        let score = 0;
+        vidChars.forEach(char => {
+          if (detectedChars.has(char)) {
+            score++;
+          }
+        });
+        if (score > 0) {
+          candidates.push({ item: vid as any, score, isVideo: true });
+        }
+      });
+
+      // Sort:
+      // 1. Score descending
+      // 2. Freshness: unused first
+      // 3. Media preference: shouldPreferVideo
+      candidates.sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score;
+        const aUsed = usedImageIds.has(a.item.id);
+        const bUsed = usedImageIds.has(b.item.id);
+        if (aUsed !== bUsed) return aUsed ? 1 : -1;
+        if (shouldPreferVideo) {
+          if (a.isVideo !== b.isVideo) return a.isVideo ? -1 : 1;
+        } else {
+          if (a.isVideo !== b.isVideo) return a.isVideo ? 1 : -1;
+        }
+        return a.item.id.localeCompare(b.item.id);
+      });
+
+      return candidates;
+    };
+
     const isBackgroundKw = (kw: string): boolean => {
       if (!kw) return false;
       if (backgroundNames.some(bg => bg === kw)) {
@@ -1963,110 +2196,64 @@ function App() {
 
       const shouldPreferVideo = !!isPriorityBlock;
 
-      if (matchedKeywords.length >= 2) {
-        if (isNoSplit) {
-          // Select exactly 1 keyword randomly
-          const seedIndex = Math.floor(Math.random() * matchedKeywords.length);
-          const kw = matchedKeywords[seedIndex];
-          const media = resolveMediaForKw(kw, shouldPreferVideo);
-          if (media) {
-            leftImgId = media.id;
-            leftKw = kw;
-            matchedKwsList = [kw];
-            rightImgId = undefined;
-            rightKw = undefined;
-            matchedImgIds = [media.id];
-            inheritanceDist = 0;
-          } else {
-            const fallback = selectRandomRandomMedia();
-            if (fallback) {
-              leftImgId = fallback.id;
-              leftKw = kw;
-              matchedKwsList = [kw];
-              rightImgId = undefined;
-              rightKw = undefined;
-              matchedImgIds = [fallback.id];
-              inheritanceDist = 0;
-            }
-          }
-        } else {
-          const selectedMediaForKws: { id: string; keyword: string }[] = [];
-          const usedMediaIds = new Set<string>();
+      const detectedBlockChars = getDetectedCharactersForBlock(block.text);
 
-          const slicedKws = matchedKeywords.slice(0, 4);
-          slicedKws.forEach(kw => {
-            const media = resolveMediaForKw(kw, shouldPreferVideo, usedMediaIds);
-            if (media) {
-              selectedMediaForKws.push(media);
-              usedMediaIds.add(media.id);
-            }
-          });
+      if (i === 0 && detectedBlockChars.size === 0 && sortedKws.length > 0) {
+        const topKw = sortedKws[0];
+        detectedBlockChars.add(topKw);
+        isFallbackBlockVal = true;
+      }
 
-          if (selectedMediaForKws.length >= 2) {
-            leftImgId = selectedMediaForKws[0].id;
-            rightImgId = selectedMediaForKws[selectedMediaForKws.length - 1].id;
-            leftKw = selectedMediaForKws[0].keyword;
-            rightKw = selectedMediaForKws[selectedMediaForKws.length - 1].keyword;
-            matchedKwsList = selectedMediaForKws.map(m => m.keyword);
-            matchedImgIds = selectedMediaForKws.map(m => m.id);
-            inheritanceDist = 0;
-          } else if (selectedMediaForKws.length === 1) {
-            const media1 = selectedMediaForKws[0];
-            const shouldPair = checkShouldPairForKw(block);
-            leftImgId = media1.id;
-            leftKw = media1.keyword;
-            matchedKwsList = [media1.keyword];
-            if (shouldPair) {
-              const media2 = resolveMediaForKw(media1.keyword, shouldPreferVideo, new Set([media1.id])) || media1;
-              rightImgId = media2.id;
-              rightKw = media1.keyword;
-              matchedImgIds = [media1.id, media2.id];
-              matchedKwsList = [media1.keyword, media1.keyword];
-            } else {
-              rightImgId = undefined;
-              rightKw = undefined;
-              matchedImgIds = [media1.id];
-            }
-            inheritanceDist = 0;
-          }
-        }
-      } else if (matchedKeywords.length === 1) {
-        const kw = matchedKeywords[0];
-        const media1 = resolveMediaForKw(kw, shouldPreferVideo);
-        if (media1) {
-          const shouldPair = checkShouldPairForKw(block);
-          leftImgId = media1.id;
-          leftKw = kw;
-          matchedKwsList = [kw];
-          if (shouldPair) {
-            const media2 = resolveMediaForKw(kw, shouldPreferVideo, new Set([media1.id])) || media1;
-            rightImgId = media2.id;
-            rightKw = kw;
-            matchedImgIds = [media1.id, media2.id];
-            matchedKwsList = [kw, kw];
-          } else {
-            rightImgId = undefined;
-            rightKw = undefined;
-            matchedImgIds = [media1.id];
-          }
+      if (block.isAiPredicted && detectedBlockChars.size === 0 && block.matchedKeywordsList && block.matchedKeywordsList.length > 0) {
+        block.matchedKeywordsList.forEach(kw => detectedBlockChars.add(kw));
+      }
+
+      if (detectedBlockChars.size > 0) {
+        const candidates = getBestMediaForBlock(detectedBlockChars, shouldPreferVideo);
+        if (candidates.length > 0) {
+          const firstCandidate = candidates[0];
+          leftImgId = firstCandidate.item.id;
+          leftKw = firstCandidate.item.characterName || Array.from(detectedBlockChars)[0];
+          matchedImgIds = [firstCandidate.item.id];
+          matchedKwsList = [leftKw];
           inheritanceDist = 0;
+
+          const shouldPair = checkShouldPairForKw(block);
+          if (shouldPair && !isNoSplit) {
+            let secondCandidate = candidates.find(c => c.item.id !== firstCandidate.item.id);
+            if (!secondCandidate) {
+              const fallbackCandidates = getBestMediaForBlock(detectedBlockChars, shouldPreferVideo, new Set([firstCandidate.item.id]));
+              if (fallbackCandidates.length > 0) {
+                secondCandidate = fallbackCandidates[0];
+              }
+            }
+            const secondMedia = secondCandidate ? secondCandidate.item : firstCandidate.item;
+            rightImgId = secondMedia.id;
+            rightKw = secondMedia.characterName || leftKw;
+            matchedImgIds.push(secondMedia.id);
+            matchedKwsList.push(rightKw);
+          } else {
+            rightImgId = undefined;
+            rightKw = undefined;
+          }
         } else {
           const fallback1 = selectRandomRandomMedia();
           const fallback2 = selectRandomRandomMedia(new Set([fallback1?.id].filter(Boolean) as string[]));
           const shouldPair = checkShouldPairForKw(block);
+          const firstKw = Array.from(detectedBlockChars)[0] || "";
           if (fallback1) {
             leftImgId = fallback1.id;
-            leftKw = kw;
-            matchedKwsList = [kw];
-            if (shouldPair && fallback2) {
+            leftKw = firstKw;
+            matchedImgIds = [fallback1.id];
+            matchedKwsList = [firstKw];
+            if (shouldPair && fallback2 && !isNoSplit) {
               rightImgId = fallback2.id;
-              rightKw = kw;
-              matchedImgIds = [fallback1.id, fallback2.id];
-              matchedKwsList = [kw, kw];
+              rightKw = firstKw;
+              matchedImgIds.push(fallback2.id);
+              matchedKwsList.push(firstKw);
             } else {
               rightImgId = undefined;
               rightKw = undefined;
-              matchedImgIds = [fallback1.id];
             }
           }
           inheritanceDist = 0;

@@ -137,7 +137,7 @@ Predict the best-matched keywords for each subtitle block. Use ONLY keywords tha
     'gh', 'thì', 'là', 'mà', 'gì', 'nào', 'với', 'về', 'để', 'cũng', 'đã', 'đang', 'sẽ', 'được', 'từ', 'qua', 'bởi', 'tại', 'ra', 'vào', 'lên', 'xuống', 'lại', 'thêm'
   ]);
 
-  // Helper to recursively scan a folder
+  // Helper to scan a folder (non-recursively, only files directly inside the top-level folder as requested)
   function scanDirectory(dir: string, baseDir: string, list: any[] = []) {
     if (!fs.existsSync(dir)) return list;
     const files = fs.readdirSync(dir);
@@ -145,21 +145,27 @@ Predict the best-matched keywords for each subtitle block. Use ONLY keywords tha
       const fullPath = path.join(dir, file);
       try {
         const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          scanDirectory(fullPath, baseDir, list);
-        } else if (stat.isFile()) {
+        if (stat.isFile()) {
           const ext = path.extname(file).toLowerCase();
           const isImage = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(ext);
           const isVideo = ['.mp4', '.mov', '.avi', '.webm', '.mkv'].includes(ext);
           
           if (isImage || isVideo) {
             const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
-            const pathParts = relativePath.split('/');
             
-            // Direct parent directory name if in a subdirectory
+            // Extract characterName from filename: first segment before '_', '-', or space
+            // E.g., "Sarah_Vui.png" -> "Sarah", "DungSy 01.jpg" -> "DungSy", "Sarah02.png" -> "Sarah"
             let characterName = 'Không có nhân vật';
-            if (pathParts.length > 1) {
-              characterName = pathParts[pathParts.length - 2];
+            const nameWithoutExt = file.substring(0, file.lastIndexOf('.')) || file;
+            const firstPart = nameWithoutExt.split(/[_-\s]+/)[0];
+            if (firstPart) {
+              // Strip trailing digits (e.g., "Sarah01" -> "Sarah", "DungSy2" -> "DungSy")
+              const cleanName = firstPart.replace(/\d+$/, '').trim();
+              if (cleanName.length >= 2) {
+                characterName = cleanName;
+              } else if (firstPart.length >= 2) {
+                characterName = firstPart;
+              }
             }
 
             // Extract keywords
@@ -176,11 +182,6 @@ Predict the best-matched keywords for each subtitle block. Use ONLY keywords tha
             };
 
             processSegment(file);
-            if (pathParts.length > 1) {
-              for (let i = 0; i < pathParts.length - 1; i++) {
-                processSegment(pathParts[i]);
-              }
-            }
 
             list.push({
               id: 'local_' + Buffer.from(fullPath).toString('base64'),
